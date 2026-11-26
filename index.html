@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f7f8fc" />
+  <title>Fisix | Aprende física</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <section class="auth-screen" id="authScreen">
+    <div class="auth-card">
+      <div class="auth-brand"><div class="brand-mark">ƒ</div><span>Fisix</span></div>
+      <div class="auth-eyebrow">TU ESPACIO DE APRENDIZAJE</div>
+      <h1 id="authTitle">Bienvenido a Fisix</h1>
+      <p class="auth-description" id="authDescription">Inicia sesión para acceder a tus herramientas y conversaciones.</p>
+      <form id="authForm" autocomplete="on">
+        <label for="authUsername">Nombre de usuario</label>
+        <input id="authUsername" name="username" type="text" minlength="3" maxlength="20" autocomplete="username" placeholder="Ej. estudiante01" required>
+        <label for="authPassword">Contraseña</label>
+        <input id="authPassword" name="password" type="password" minlength="8" autocomplete="current-password" placeholder="Mínimo 8 caracteres" required>
+        <button class="primary-btn auth-submit" id="authSubmit" type="submit">Iniciar sesión</button>
+      </form>
+      <div class="auth-switch"><span id="authSwitchText">¿Todavía no tienes una cuenta?</span> <button type="button" id="authSwitch">Crear cuenta</button></div>
+      <p class="auth-feedback" id="authFeedback" role="status" aria-live="polite"></p>
+      <p class="auth-notice">Versión local de prueba: las cuentas y contraseñas se guardan únicamente en este navegador. No es un sistema seguro para publicar ni sincroniza entre dispositivos.</p>
+    </div>
+  </section>
+\n  <div class="app-shell" id="appShell" hidden>
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark">ƒ</div><span>Fisix</span>
+        <button class="icon-btn mobile-close" id="closeSidebar" aria-label="Cerrar menú">×</button>
+      </div>
+      <button class="new-chat" data-page="assistant"><span>＋</span> Nuevo chat</button>
+      <div class="side-section-label">MENÚ PRINCIPAL</div>
+      <nav class="nav-list">
+        <button class="nav-item active" data-page="home"><span class="nav-icon">⌂</span>Inicio</button>
+        <button class="nav-item" data-page="assistant"><span class="nav-icon">✧</span>Asistente IA</button>
+        <button class="nav-item" data-page="simulators"><span class="nav-icon">◉</span>Simuladores</button>
+        <button class="nav-item" data-page="quizzes"><span class="nav-icon">▤</span>Cuestionarios</button>
+        <button class="nav-item" data-page="formulas"><span class="nav-icon">ƒ</span>Fórmulas</button>
+        <button class="nav-item" data-page="calculator"><span class="nav-icon">⊞</span>Calculadora</button>
+        <button class="nav-item" data-page="converter"><span class="nav-icon">⇄</span>Conversor de unidades</button>
+      </nav>
+      <div class="saved-chats">
+        <div class="side-section-label">CHATS RECIENTES</div>
+        <div id="savedChats" class="saved-empty">Tus chats se guardarán aquí cuando comiences una conversación.</div>
+      </div>
+      <div class="sidebar-bottom">
+        <div class="avatar" id="accountAvatar">F</div>
+        <div class="account-label"><strong id="accountName">Estudiante</strong><small>Cuenta local</small></div>
+        <div class="account-menu-wrap">
+          <button class="account-menu-trigger" id="accountMenuTrigger" type="button" aria-label="Opciones de cuenta" aria-haspopup="true" aria-expanded="false">···</button>
+          <div class="account-menu" id="accountMenu" hidden>
+            <button type="button" id="switchAccountButton"><span>⇄</span> Cambiar de cuenta</button>
+            <button type="button" id="logoutButton"><span>↪</span> Cerrar sesión</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <button class="icon-btn menu-toggle" id="openSidebar" aria-label="Abrir menú">☰</button>
+        <div class="breadcrumb"><span>Fisix</span><i>/</i><strong id="pageName">Inicio</strong></div>
+        <div class="top-actions"><span class="status-dot"></span><label class="language-label" for="languageSelect">Idioma</label><select class="top-lang" id="languageSelect" aria-label="Seleccionar idioma"><option value="es">Español</option><option value="en">English</option></select></div>
+      </header>
+
+      <section class="page active-page" id="page-home">
+        <div class="hero">
+          <div class="hero-copy">
+            <div class="eyebrow"><span class="sparkle">✦</span> TU ESPACIO DE APRENDIZAJE</div>
+            <h1>La física, más fácil<br>de <span>entender.</span></h1>
+            <p>Aprende, experimenta y resuelve problemas de física con herramientas diseñadas para ti.</p>
+            <button class="primary-btn" data-page="assistant">Explorar asistente <span>→</span></button>
+          </div>
+          <div class="hero-art">
+            <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+            <div class="atom-core">+</div><div class="electron e1"></div><div class="electron e2"></div><div class="electron e3"></div>
+            <div class="float-chip chip-a">E = mc²</div><div class="float-chip chip-b">F = ma</div><div class="float-chip chip-c">⚡</div>
+          </div>
+        </div>
+        <div class="section-heading"><div><div class="eyebrow">HERRAMIENTAS</div><h2>¿Qué quieres aprender hoy?</h2></div><span class="muted">Todo lo que necesitas en un solo lugar</span></div>
+        <div class="tool-grid">
+          <button class="tool-card" data-page="assistant"><div class="tool-icon purple">✧</div><h3>Asistente IA</h3><p>Resuelve tus dudas y estudia con tus propios documentos.</p><span class="card-link">Comenzar chat <b>↗</b></span></button>
+          <button class="tool-card" data-page="simulators"><div class="tool-icon blue">◉</div><h3>Simuladores</h3><p>Experimenta con conceptos de física de forma interactiva.</p><span class="card-link">Ver simuladores <b>↗</b></span></button>
+          <button class="tool-card" data-page="quizzes"><div class="tool-icon orange">▤</div><h3>Cuestionarios</h3><p>Pon a prueba lo que sabes y revisa tus resultados.</p><span class="card-link">Practicar ahora <b>↗</b></span></button>
+          <button class="tool-card" data-page="formulas"><div class="tool-icon green">ƒ</div><h3>Fórmulas</h3><p>Consulta las ecuaciones más importantes de cada tema.</p><span class="card-link">Ver fórmulas <b>↗</b></span></button>
+          <button class="tool-card" data-page="calculator"><div class="tool-icon pink">⊞</div><h3>Calculadora</h3><p>Realiza operaciones y calcula variables de física.</p><span class="card-link">Abrir calculadora <b>↗</b></span></button>
+          <button class="tool-card" data-page="converter"><div class="tool-icon teal">⇄</div><h3>Conversor</h3><p>Cambia entre unidades de medida al instante.</p><span class="card-link">Convertir unidades <b>↗</b></span></button>
+        </div>
+        <div class="bottom-note"><span>✦</span> Un paso a la vez. Entender es mejor que memorizar.</div>
+      </section>
+
+      <section class="page" id="page-assistant">
+        <div class="assistant-layout">
+          <div class="chat-panel">
+            <div class="chat-heading"><div><div class="eyebrow">TU COMPAÑERO DE ESTUDIO</div><h1>Asistente <span>Fisix</span></h1><p>Pregunta, aprende y explora conceptos de física.</p></div><button class="soft-btn" id="clearChat">＋ Nuevo chat</button></div>
+            <div class="chat-scroll" id="chatScroll">
+              <div class="welcome-chat" id="welcomeChat">
+                <div class="assistant-avatar">✧</div><h2>¡Hola! ¿Qué vamos a aprender hoy?</h2><p>Puedo ayudarte a comprender conceptos, resolver ejercicios paso a paso o estudiar con tus fuentes.</p>
+                <div class="prompt-grid">
+                  <button class="prompt-card" data-prompt="Explícame la ley de Ohm desde cero."><b>⚡ Entender un tema</b><span>Explícame la ley de Ohm desde cero</span></button>
+                  <button class="prompt-card" data-prompt="Ayúdame a resolver un ejercicio de la ley de Faraday."><b>∑ Resolver un ejercicio</b><span>Ayúdame con un ejercicio de Faraday</span></button>
+                  <button class="prompt-card" data-prompt="Hazme un resumen de reflexión y espejos."><b>▤ Repasar para un examen</b><span>Resume reflexión y espejos</span></button>
+                  <button class="prompt-card" data-prompt="¿Qué significa el campo magnético?"><b>◉ Aclarar una duda</b><span>¿Qué significa el campo magnético?</span></button>
+                </div>
+              </div>
+              <div id="messages" class="messages"></div>
+            </div>
+            <div id="attachmentPreview" class="attachment-preview" hidden></div>
+            <form class="composer" id="chatForm"><button type="button" class="attach-inline" id="chatAttach" title="Adjuntar imagen" aria-label="Adjuntar imagen">▧</button><input id="chatFileInput" type="file" accept="image/*" hidden><textarea id="chatInput" rows="1" placeholder="Escribe tu pregunta..." aria-label="Escribe tu pregunta"></textarea><button type="button" class="voice-btn" id="recordAudio" title="Grabar pregunta por audio" aria-label="Grabar pregunta por audio">🎙</button><button class="send-btn" type="submit" aria-label="Enviar">↑</button></form>
+            <div id="audioStatus" class="audio-status" aria-live="polite"></div>
+            <div class="disclaimer">Las respuestas de Fisix pueden contener errores. Comprueba los resultados importantes.</div>
+          </div>
+          <aside class="sources-panel">
+            <div class="sources-head"><div><div class="eyebrow">CONTEXTO DE ESTUDIO</div><h3>Mis fuentes</h3></div><span class="source-count" id="sourceCount">0</span></div>
+            <p class="source-description">Agrega tus materiales para tenerlos organizados en este espacio.</p>
+            <label class="upload-zone" for="sourceUpload"><span class="upload-icon">↑</span><strong>Subir documentos</strong><small>PDF, DOCX, PPTX y TXT</small><span class="upload-action">Seleccionar archivos</span></label>
+            <input id="sourceUpload" type="file" multiple accept=".pdf,.docx,.pptx,.txt" hidden>
+            <div class="source-list-title">ARCHIVOS AGREGADOS</div><div id="sourceList" class="source-list"><div class="no-sources">Aún no has agregado fuentes.</div></div>
+            <div class="source-tip"><span>ⓘ</span><p>Los documentos compatibles se procesan en tu navegador y su texto se puede consultar en el chat. Las imágenes se envían a Gemini para analizar ejercicios de física.</p></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page" id="page-simulators">
+        <div class="page-intro"><div class="eyebrow">APRENDE EXPERIMENTANDO</div><h1>Simuladores</h1><p>Modifica los valores y observa cómo cambian los resultados.</p></div>
+        <div class="sim-tabs" id="simTabs"><button class="selected" data-sim="coulomb">Ley de Coulomb</button><button data-sim="electric">Campo eléctrico</button><button data-sim="gauss">Ley de Gauss</button><button data-sim="potential">Potencial eléctrico</button><button data-sim="ohm">Ley de Ohm</button><button data-sim="field">Campo magnético</button><button data-sim="ampere">Ley de Ampère</button><button data-sim="faraday">Ley de Faraday</button><button data-sim="series">Circuito en serie</button><button data-sim="waves">Ondas electromagnéticas</button><button data-sim="mirrors">Reflexión y espejos</button><button data-sim="freefall">Caída libre</button><button data-sim="projectile">Tiro parabólico</button><button data-sim="mru">MRU</button><button data-sim="mruv">MRUV</button><button data-sim="work">Trabajo y energía</button><button data-sim="thermal">Dilatación térmica</button><button data-sim="calor">Calorimetría</button></div>
+        <div class="simulator-card" id="simulatorContent"></div>
+      </section>
+
+      <section class="page" id="page-quizzes">
+        <div class="page-intro"><div class="eyebrow">PON A PRUEBA TUS CONOCIMIENTOS</div><h1>Cuestionarios</h1><p>Practica con preguntas de los 16 temas del nuevo temario.</p></div>
+        <div class="quiz-layout"><div class="quiz-main" id="quizMain"></div><aside class="quiz-side"><div class="quiz-side-icon">✦</div><h3>Aprende de tus errores</h3><p>Al finalizar podrás revisar las respuestas correctas y comprender por qué.</p><div class="quiz-stat"><strong>32</strong><span>preguntas disponibles</span></div><div class="quiz-stat"><strong>16</strong><span>temas de física</span></div></aside></div>
+      </section>
+
+      <section class="page" id="page-formulas">
+        <div class="page-intro"><div class="eyebrow">RESUMEN DE ECUACIONES</div><h1>Fórmulas</h1><p>Consulta las ecuaciones y envíalas directamente a la calculadora.</p></div>
+        <div class="formula-filter" id="formulaFilter"><button class="selected" data-filter="all">Todas</button><button data-filter="electricidad">Electricidad</button><button data-filter="circuitos">Circuitos</button><button data-filter="magnetismo">Magnetismo</button><button data-filter="ondas">Ondas</button><button data-filter="optica">Óptica</button><button data-filter="mecanica">Mecánica</button><button data-filter="termica">Térmica</button></div>
+        <div class="formula-grid" id="formulaGrid"></div>
+      </section>
+
+      <section class="page" id="page-calculator">
+        <div class="page-intro"><div class="eyebrow">RESUELVE Y COMPRUEBA</div><h1>Calculadora</h1><p>Realiza operaciones o selecciona una fórmula para calcular una variable.</p></div>
+        <div class="calculator-layout">
+          <div class="calc-card"><div class="calc-display"><small id="calcMode">OPERACIÓN</small><div id="calcDisplay">0</div></div><div class="calc-keys" id="calcKeys">
+            <button class="key muted-key" data-key="AC">AC</button><button class="key muted-key" data-key="(">(</button><button class="key muted-key" data-key=")">)</button><button class="key operator" data-key="÷">÷</button>
+            <button class="key" data-key="7">7</button><button class="key" data-key="8">8</button><button class="key" data-key="9">9</button><button class="key operator" data-key="×">×</button>
+            <button class="key" data-key="4">4</button><button class="key" data-key="5">5</button><button class="key" data-key="6">6</button><button class="key operator" data-key="-">−</button>
+            <button class="key" data-key="1">1</button><button class="key" data-key="2">2</button><button class="key" data-key="3">3</button><button class="key operator" data-key="+">+</button>
+            <button class="key muted-key" data-key="sqrt">√</button><button class="key" data-key="0">0</button><button class="key" data-key=".">.</button><button class="key equals" data-key="=">=</button>
+          </div></div>
+          <div class="formula-calc-card"><div class="card-kicker">CALCULADORA DE FÍSICA</div><h2>Usar una fórmula</h2><p>Selecciona una ecuación e ingresa los datos conocidos.</p><label class="field-label" for="calcFormula">Fórmula</label><select id="calcFormula" class="field-control"></select><div id="formulaInputs" class="formula-inputs"></div><button class="primary-btn full-btn" id="solveFormula">Calcular resultado <span>→</span></button><div class="calc-result"><small>RESULTADO</small><strong id="formulaResult">—</strong><span id="formulaExplanation">Completa los datos y presiona calcular.</span></div></div>
+        </div>
+      </section>
+
+      <section class="page" id="page-converter">
+        <div class="page-intro"><div class="eyebrow">CONVERSIONES RÁPIDAS</div><h1>Conversor de unidades</h1><p>Convierte magnitudes físicas comunes de manera sencilla.</p></div>
+        <div class="converter-card"><div class="converter-top"><label class="field-label">Magnitud<select id="conversionType" class="field-control"><option value="length">Longitud</option><option value="mass">Masa</option><option value="time">Tiempo</option><option value="speed">Velocidad</option><option value="force">Fuerza</option><option value="energy">Energía</option><option value="charge">Carga eléctrica</option><option value="voltage">Voltaje</option></select></label></div><div class="conversion-row"><label class="field-label">De<input id="convertValue" class="field-control" type="number" value="1"></label><button class="swap-btn" id="swapUnits">⇄</button><label class="field-label">A<input id="convertedValue" class="field-control result-input" readonly value="100"></label></div><div class="conversion-row unit-row"><label class="field-label">Unidad inicial<select id="fromUnit" class="field-control"></select></label><label class="field-label">Unidad final<select id="toUnit" class="field-control"></select></label></div><div class="conversion-result"><small>RESULTADO DE LA CONVERSIÓN</small><strong id="conversionAnswer">100 cm</strong></div></div>
+      </section>
+
+
+      <footer class="footer">Fisix <span>·</span> Aprende a tu ritmo</footer>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [["\\(", "\\)"]],
+        displayMath: [["\\[", "\\]"]],
+        processEscapes: true
+      },
+      options: {
+        skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"]
+      }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" onload="MathJax.typesetPromise()"></script>
+  <script src="app.js"></script>
+</body>
+</html>
