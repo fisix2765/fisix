@@ -136,8 +136,8 @@
       </section>
 
       <section class="page" id="page-quizzes">
-        <div class="page-intro"><div class="eyebrow">PON A PRUEBA TUS CONOCIMIENTOS</div><h1>Cuestionarios</h1><p>Practica con preguntas de los 16 temas del nuevo temario.</p></div>
-        <div class="quiz-layout"><div class="quiz-main" id="quizMain"></div><aside class="quiz-side"><div class="quiz-side-icon">✦</div><h3>Aprende de tus errores</h3><p>Al finalizar podrás revisar las respuestas correctas y comprender por qué.</p><div class="quiz-stat"><strong>32</strong><span>preguntas disponibles</span></div><div class="quiz-stat"><strong>16</strong><span>temas de física</span></div></aside></div>
+        <div class="page-intro"><div class="eyebrow">PON A PRUEBA TUS CONOCIMIENTOS</div><h1>Cuestionarios con IA</h1><p>Genera una práctica nueva con Gemini según el tema y el nivel que quieras estudiar.</p></div>
+        <div class="quiz-layout"><div class="quiz-main" id="quizMain"></div><aside class="quiz-side"><div class="quiz-side-icon">✦</div><h3>Un cuestionario diferente cada vez</h3><p>Gemini crea preguntas nuevas, revisa tus respuestas y explica por qué cada opción es correcta o incorrecta.</p><div class="quiz-stat"><strong>IA</strong><span>preguntas generadas al momento</span></div><div class="quiz-stat"><strong>5–15</strong><span>preguntas por práctica</span></div></aside></div>
       </section>
 
       <section class="page" id="page-formulas">
@@ -185,7 +185,7 @@
       }
     };
   </script>
-  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" onload="MathJax.typesetPromise()"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" onload="window.dispatchEvent(new Event('fisix-mathjax-ready')); MathJax.typesetPromise()"></script>
   <script src="app.js"></script>
 </body>
 </html>

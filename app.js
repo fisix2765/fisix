@@ -815,17 +815,215 @@ function renderAssistantText(rawText) {
   return blocks.join("");
 }
 
-function typesetAssistantMath(element) {
-  if (!element || !window.MathJax?.typesetPromise) return;
-  window.MathJax.typesetClear?.([element]);
-  window.MathJax.typesetPromise([element]).catch(error => {
+const fisixMathJaxReady = new Promise(resolve => {
+  if (window.MathJax?.typesetPromise) resolve();
+  else window.addEventListener("fisix-mathjax-ready", resolve, { once: true });
+});
+
+async function typesetAssistantMath(element) {
+  if (!element) return;
+  try {
+    await fisixMathJaxReady;
+    if (!window.MathJax?.typesetPromise) return;
+    window.MathJax.typesetClear?.([element]);
+    await window.MathJax.typesetPromise([element]);
+  } catch (error) {
     console.warn("No se pudieron renderizar algunas fórmulas LaTeX:", error);
+  }
+}
+
+let fisixSpeechActiveButton = null;
+
+function textoParaLectura(text) {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\\\[([\s\S]*?)\\\]/g, " $1 ")
+    .replace(/\\\(([\s\S]*?)\\\)/g, " $1 ")
+    .replace(/\$\$([\s\S]*?)\$\$/g, " $1 ")
+    .replace(/\$([^$\n]+)\$/g, " $1 ")
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1 dividido entre $2")
+    .replace(/\\sqrt\{([^{}]+)\}/g, "raíz cuadrada de $1")
+    .replace(/\\times|\\cdot/g, " por ")
+    .replace(/\\pm/g, " más o menos ")
+    .replace(/\\pi/g, " pi ")
+    .replace(/\\(text|mathrm|mathbf|mathit)\{([^{}]*)\}/g, "$2")
+    .replace(/\\(begin|end)\{[^{}]+\}/g, " ")
+    .replace(/\\[a-zA-Z]+/g, " ")
+    .replace(/[{}_^]/g, " ")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/[*`>#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function agregarControlesDeVoz(element, text) {
+  element.querySelector(".speech-controls")?.remove();
+  const plainText = textoParaLectura(text);
+  if (!plainText || plainText === "Pensando…" || plainText === "Pensando...") return;
+
+  const controls = document.createElement("div");
+  controls.className = "speech-controls";
+  const play = document.createElement("button");
+  play.type = "button";
+  play.className = "speech-play";
+  play.textContent = "🔊 Escuchar";
+  play.setAttribute("aria-label", "Escuchar respuesta en voz alta");
+  const pause = document.createElement("button");
+  pause.type = "button";
+  pause.className = "speech-pause";
+  pause.textContent = "Ⅱ Pausar";
+  pause.hidden = true;
+  const restart = document.createElement("button");
+  restart.type = "button";
+  restart.className = "speech-restart";
+  restart.textContent = "↻ Desde el inicio";
+  const stop = document.createElement("button");
+  stop.type = "button";
+  stop.className = "speech-stop";
+  stop.textContent = "Detener";
+  stop.hidden = true;
+  const progress = document.createElement("input");
+  progress.type = "range";
+  progress.className = "speech-progress";
+  progress.min = "0"; progress.max = "1000"; progress.value = "0";
+  progress.setAttribute("aria-label", "Avanzar o retroceder en la lectura");
+  const time = document.createElement("span");
+  time.className = "speech-time";
+  time.textContent = "0:00 / " + formatoTiempoVoz(plainText.length / 15);
+  controls.append(play, pause, restart, stop, progress, time);
+
+  let currentUtterance = null;
+  let currentPosition = 0;
+  let utteranceStartPosition = 0;
+  let isPlaying = false;
+  let isPaused = false;
+  let isSeeking = false;
+  let seekWasPlaying = false;
+  let seekWasPaused = false;
+  const estimatedDuration = Math.max(1, plainText.length / 15);
+  const updateProgress = (position) => {
+    currentPosition = Math.max(0, Math.min(plainText.length, position));
+    progress.value = String(Math.round(currentPosition / Math.max(1, plainText.length) * 1000));
+    time.textContent = `${formatoTiempoVoz(currentPosition / Math.max(1, plainText.length) * estimatedDuration)} / ${formatoTiempoVoz(estimatedDuration)}`;
+  };
+  const resetControls = () => {
+    isPlaying = false; isPaused = false;
+    play.hidden = false; pause.hidden = true; stop.hidden = true;
+    play.textContent = "🔊 Escuchar";
+    if (fisixSpeechActiveButton === play) fisixSpeechActiveButton = null;
+  };
+  const speakFrom = (position = 0) => {
+    if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      toast("Tu navegador no admite lectura en voz alta."); return;
+    }
+    window.speechSynthesis.cancel();
+    currentPosition = Math.max(0, Math.min(plainText.length, position));
+    utteranceStartPosition = currentPosition;
+    updateProgress(currentPosition);
+    const remainingText = plainText.slice(currentPosition).trimStart();
+    if (!remainingText) { updateProgress(plainText.length); resetControls(); return; }
+    const utterance = new SpeechSynthesisUtterance(remainingText);
+    currentUtterance = utterance;
+    utterance.lang = fisixLanguage === "en" ? "en-US" : "es-PE";
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => v.lang.toLowerCase() === utterance.lang.toLowerCase())
+      || voices.find(v => v.lang.toLowerCase().startsWith(fisixLanguage === "en" ? "en" : "es"));
+    if (preferred) utterance.voice = preferred;
+    isPlaying = true; isPaused = false;
+    fisixSpeechActiveButton = play;
+    play.hidden = true; pause.hidden = false; stop.hidden = false;
+    pause.textContent = "Ⅱ Pausar";
+    utterance.onboundary = (event) => {
+      // charIndex siempre es relativo al texto de ESTA locución; no se debe sumar
+      // a la posición que va cambiando, porque eso adelanta artificialmente la barra.
+      if (currentUtterance === utterance && !isSeeking && typeof event.charIndex === "number") {
+        updateProgress(utteranceStartPosition + event.charIndex);
+      }
+    };
+    utterance.onend = () => {
+      if (currentUtterance !== utterance) return;
+      updateProgress(plainText.length);
+      currentUtterance = null;
+      resetControls();
+    };
+    utterance.onerror = (event) => {
+      if (currentUtterance !== utterance) return;
+      if (event.error !== "canceled" && event.error !== "interrupted") toast("No se pudo completar la lectura en voz alta.");
+      currentUtterance = null;
+      if (!isPaused) resetControls();
+    };
+    window.speechSynthesis.speak(utterance);
+  };
+  play.addEventListener("click", () => speakFrom(currentPosition));
+  pause.addEventListener("click", () => {
+    if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+      window.speechSynthesis.pause(); isPaused = true; isPlaying = false;
+      pause.textContent = "▶ Continuar";
+    } else if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume(); isPaused = false; isPlaying = true;
+      pause.textContent = "Ⅱ Pausar";
+    }
   });
+  restart.addEventListener("click", () => speakFrom(0));
+  stop.addEventListener("click", () => {
+    window.speechSynthesis.cancel(); updateProgress(0); resetControls();
+  });
+  progress.addEventListener("pointerdown", () => {
+    isSeeking = true;
+    seekWasPlaying = isPlaying && !isPaused;
+    seekWasPaused = isPaused;
+    if (seekWasPlaying && window.speechSynthesis.speaking) window.speechSynthesis.pause();
+  });
+  progress.addEventListener("input", () => {
+    const target = Math.round(Number(progress.value) / 1000 * plainText.length);
+    updateProgress(target); // Solo mueve la posición visual mientras se arrastra.
+  });
+  const finishSeeking = () => {
+    if (!isSeeking) return;
+    const target = Math.round(Number(progress.value) / 1000 * plainText.length);
+    const resumeAfterSeek = seekWasPlaying;
+    const remainPaused = seekWasPaused;
+    isSeeking = false;
+    window.speechSynthesis.cancel();
+    currentUtterance = null;
+    updateProgress(target);
+    if (resumeAfterSeek || remainPaused) {
+      speakFrom(target);
+      if (remainPaused) {
+        window.speechSynthesis.pause();
+        isPaused = true; isPlaying = false;
+        pause.textContent = "▶ Continuar";
+      }
+    } else {
+      resetControls();
+    }
+  };
+  progress.addEventListener("change", finishSeeking);
+  progress.addEventListener("pointerup", finishSeeking);
+  progress.addEventListener("pointercancel", finishSeeking);
+  progress.addEventListener("keydown", (event) => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
+      isSeeking = true;
+      seekWasPlaying = isPlaying && !isPaused;
+      seekWasPaused = isPaused;
+    }
+  });
+  element.append(controls);
+}
+
+function formatoTiempoVoz(seconds) {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
 }
 
 function setAssistantBubbleContent(element, text) {
   if (window.MathJax?.typesetClear) window.MathJax.typesetClear([element]);
   element.innerHTML = renderAssistantText(text);
+  agregarControlesDeVoz(element, text);
   typesetAssistantMath(element);
 }
 
@@ -837,8 +1035,9 @@ function addMessage(text, who, media = null) {
   av.textContent = who === "user" ? "T" : "✧";
   const bubble = document.createElement("div");
   bubble.className = "message-bubble";
-  if (who === "assistant") bubble.innerHTML = renderAssistantText(text);
-  else {
+  if (who === "assistant") {
+    setAssistantBubbleContent(bubble, text);
+  } else {
     if (text) bubble.textContent = text;
     if (media?.image) {
       const imageUrl = URL.createObjectURL(media.image);
@@ -880,7 +1079,6 @@ function addMessage(text, who, media = null) {
   }
   wrap.append(av, bubble);
   $("#messages").append(wrap);
-  if (who === "assistant") typesetAssistantMath(bubble);
   $("#chatScroll").scrollTop = $("#chatScroll").scrollHeight;
   return bubble;
 }
@@ -1495,7 +1693,7 @@ function simSceneSvg(key,v){
  case 'faraday':{body=`<rect x="130" y="105" width="90" height="90" rx="8" fill="#e58b75" opacity=".9"/><rect x="220" y="105" width="90" height="90" rx="8" fill="#658de0" opacity=".9"/>${text(175,155,'N',28,'#fff')}${text(265,155,'S',28,'#fff')}${Array.from({length:7},(_,i)=>`<path d="M 315 ${112+i*13} C 365 ${80+i*13} 420 ${80+i*13} 465 ${112+i*13}" fill="none" stroke="#9b91df" stroke-width="2"/>`).join('')}<rect x="455" y="85" width="24" height="130" rx="8" fill="none" stroke="#887cdb" stroke-width="5"/><path d="M480 150 H575" stroke="#e0a16d" stroke-width="3"/><circle class="sim-pulse" cx="575" cy="150" r="13" fill="#e5a34d"/>${text(465,55,`${v.turns} espiras`,14,'#554a9b')}${text(380,270,`Variación de flujo: ${v.delta} Wb en ${v.time} s`,13)}`;break;}
  case 'series':{const R=v.r1+v.r2+v.r3,I=v.voltage/R;body=`<path d="M90 150 H170 M250 150 H300 M380 150 H430 M510 150 H660 V220 H90 V150" fill="none" stroke="#887cdb" stroke-width="4"/><rect x="170" y="125" width="80" height="50" rx="7" fill="#f0efff" stroke="#887cdb" stroke-width="3"/><rect x="300" y="125" width="80" height="50" rx="7" fill="#f0efff" stroke="#887cdb" stroke-width="3"/><rect x="430" y="125" width="80" height="50" rx="7" fill="#f0efff" stroke="#887cdb" stroke-width="3"/>${text(210,155,`${v.r1} Ω`,13,'#554a9b')}${text(340,155,`${v.r2} Ω`,13,'#554a9b')}${text(470,155,`${v.r3} Ω`,13,'#554a9b')}${text(105,130,`${v.voltage} V`,12,'#b47a40')}${text(380,65,'La corriente es igual en todos los elementos',15,'#554a9b')}${text(380,270,`I = ${I.toFixed(3)} A · Req = ${R.toFixed(1)} Ω · ΔV₁ = ${(I*v.r1).toFixed(1)} V`,13)}`;break;}
  case 'waves':{const med=waveMedium(v),lambda=Math.max(22,Math.min(180,med.speed/(v.freq*1e6)*85));let pts=[];for(let x=55;x<=705;x+=5)pts.push(`${x},${150-55*Math.sin((x-55)*2*Math.PI/lambda)}`);body=`<path d="M ${pts.join(' L ')}" fill="none" stroke="#8175d7" stroke-width="4" stroke-linecap="round"/>${line(55,150,705,150,'#d8d9e5',1)}${line(90,75,90,225,'#d8d9e5',1)}${line(90,95,90+lambda,95,'#e0a16d',3)}${line(90,88,90,102,'#e0a16d',2)}${line(90+lambda,88,90+lambda,102,'#e0a16d',2)}${text(90+lambda/2,80,`λ = ${(med.speed/(v.freq*1e6)).toFixed(3)} m`,13,'#b47a40')}${text(380,270,`Frecuencia: ${v.freq} MHz · medio: ${med.label} · rapidez: ${med.speed.toExponential(2)} m/s`,13)}`;break;}
- case 'mirrors':{const m=mirrorPhysics(v),mx=520,axis=160,scale=3.65,ox=Math.max(90,Math.min(450,mx-v.distance*scale)),fx=Number.isFinite(m.f)?mx-m.f*scale:mx-150,cx=Number.isFinite(m.f)?mx-2*m.f*scale:mx-300;const oh=Math.max(18,Math.min(52,v.height*4.2)),ih=m.atInfinity?0:Math.max(8,Math.min(105,oh*Math.abs(m.m)))*(m.m<0?-1:1),ix=m.atInfinity?mx-360:mx-m.di*scale;const mirrorPath=m.type==='plane'?`M ${mx} 38 V 280`:m.type==='concave'?`M ${mx} 38 Q ${mx-78} 160 ${mx} 280`:`M ${mx-38} 38 Q ${mx+40} 160 ${mx-38} 280`;const ray1Y=axis-oh;let rays='';if(!m.atInfinity){const topX=ox,topY=ray1Y;const rayColor='#df985d';if(m.real){rays=`<path d="M ${topX} ${topY} L ${mx} ${topY} L ${ix} ${axis-ih}" fill="none" stroke="${rayColor}" stroke-width="2.5"/><path d="M ${topX} ${topY} L ${mx} ${axis+(topY-axis)*.18} L ${ix} ${axis-ih}" fill="none" stroke="#70a4cb" stroke-width="2.2"/>`;}else{const leftEnd=90,virtualY=axis-ih,slope=(virtualY-topY)/(ix-mx||1),outY=topY+(leftEnd-mx)*slope;rays=`<path d="M ${topX} ${topY} L ${mx} ${topY} L ${leftEnd} ${outY}" fill="none" stroke="${rayColor}" stroke-width="2.5"/><path d="M ${mx} ${topY} L ${ix} ${virtualY}" fill="none" stroke="#70a4cb" stroke-width="2.2" stroke-dasharray="6 5"/>`;}}const imageArrow=m.atInfinity?'':`<line x1="${ix}" y1="${axis}" x2="${ix}" y2="${axis-ih}" stroke="${m.real?'#d98c63':'#5b9ac4'}" stroke-width="5"/><path d="M ${ix-7} ${axis-ih+10} L ${ix} ${axis-ih} L ${ix+7} ${axis-ih+10}" fill="none" stroke="${m.real?'#d98c63':'#5b9ac4'}" stroke-width="3"/>`;body=`${line(45,axis,710,axis,'#9da2b5',1,'5 5')}${line(fx,axis-5,fx,axis+5,'#8b7bd8',2)}${text(fx,axis+20,'F',12,'#695bb8')}${m.type!=='plane'?`${line(cx,axis-5,cx,axis+5,'#8b7bd8',2)}${text(cx,axis+20,'C',12,'#695bb8')}`:''}<path d="${mirrorPath}" fill="none" stroke="#8a8fa4" stroke-width="9" stroke-linecap="round"/><path d="${mirrorPath}" fill="none" stroke="#dce0eb" stroke-width="3" stroke-linecap="round"/>${rays}<g id="dragMirrorObject" style="cursor:ew-resize;touch-action:none"><line x1="${ox}" y1="${axis}" x2="${ox}" y2="${axis-oh}" stroke="#e3a05f" stroke-width="5"/><path d="M ${ox-8} ${axis-oh+12} L ${ox} ${axis-oh} L ${ox+8} ${axis-oh+12}" fill="none" stroke="#e3a05f" stroke-width="3"/></g>${imageArrow}${text(ox,axis+23,'Objeto',12,'#b47a40')}${m.atInfinity?'':text(Math.max(55,Math.min(700,ix)),m.m<0?axis+25:axis+25,'Imagen',12,m.real?'#b47a40':'#4d8fb7')}${text(380,25,m.kindLabel,16,'#554a9b')}${text(380,292,m.atInfinity?'Objeto en el foco: rayos reflejados paralelos':`do = ${v.distance} cm · f = ${v.focal} cm · di = ${m.di.toFixed(1)} cm · m = ${m.m.toFixed(2)}`,12)}`;break;}
+ case 'mirrors':{const m=mirrorPhysics(v),mx=520,axis=160,scale=3.65,ox=Math.max(90,Math.min(450,mx-v.distance*scale)),fx=Number.isFinite(m.f)?mx-m.f*scale:mx-150,cx=Number.isFinite(m.f)?mx-2*m.f*scale:mx-300;const oh=Math.max(18,Math.min(52,v.height*4.2)),ih=m.atInfinity?0:Math.max(8,Math.min(105,oh*Math.abs(m.m)))*(m.m<0?-1:1),ix=m.atInfinity?mx-360:mx-m.di*scale;const mirrorPath=m.type==='plane'?`M ${mx} 38 V 280`:m.type==='concave'?`M ${mx-35} 38 Q ${mx+35} 160 ${mx-35} 280`:`M ${mx+35} 38 Q ${mx-35} 160 ${mx+35} 280`;const ray1Y=axis-oh;let rays='';if(!m.atInfinity){const topX=ox,topY=ray1Y;const rayColor='#df985d';if(m.real){rays=`<path d="M ${topX} ${topY} L ${mx} ${topY} L ${ix} ${axis-ih}" fill="none" stroke="${rayColor}" stroke-width="2.5"/><path d="M ${topX} ${topY} L ${mx} ${axis+(topY-axis)*.18} L ${ix} ${axis-ih}" fill="none" stroke="#70a4cb" stroke-width="2.2"/>`;}else{const leftEnd=90,virtualY=axis-ih,slope=(virtualY-topY)/(ix-mx||1),outY=topY+(leftEnd-mx)*slope;rays=`<path d="M ${topX} ${topY} L ${mx} ${topY} L ${leftEnd} ${outY}" fill="none" stroke="${rayColor}" stroke-width="2.5"/><path d="M ${mx} ${topY} L ${ix} ${virtualY}" fill="none" stroke="#70a4cb" stroke-width="2.2" stroke-dasharray="6 5"/>`;}}const imageArrow=m.atInfinity?'':`<line x1="${ix}" y1="${axis}" x2="${ix}" y2="${axis-ih}" stroke="${m.real?'#d98c63':'#5b9ac4'}" stroke-width="5"/><path d="M ${ix-7} ${axis-ih+10} L ${ix} ${axis-ih} L ${ix+7} ${axis-ih+10}" fill="none" stroke="${m.real?'#d98c63':'#5b9ac4'}" stroke-width="3"/>`;body=`${line(45,axis,710,axis,'#9da2b5',1,'5 5')}${line(fx,axis-5,fx,axis+5,'#8b7bd8',2)}${text(fx,axis+20,'F',12,'#695bb8')}${m.type!=='plane'?`${line(cx,axis-5,cx,axis+5,'#8b7bd8',2)}${text(cx,axis+20,'C',12,'#695bb8')}`:''}<path d="${mirrorPath}" fill="none" stroke="#8a8fa4" stroke-width="9" stroke-linecap="round"/><path d="${mirrorPath}" fill="none" stroke="#dce0eb" stroke-width="3" stroke-linecap="round"/>${rays}<g id="dragMirrorObject" style="cursor:ew-resize;touch-action:none"><line x1="${ox}" y1="${axis}" x2="${ox}" y2="${axis-oh}" stroke="#e3a05f" stroke-width="5"/><path d="M ${ox-8} ${axis-oh+12} L ${ox} ${axis-oh} L ${ox+8} ${axis-oh+12}" fill="none" stroke="#e3a05f" stroke-width="3"/></g>${imageArrow}${text(ox,axis+23,'Objeto',12,'#b47a40')}${m.atInfinity?'':text(Math.max(55,Math.min(700,ix)),m.m<0?axis+25:axis+25,'Imagen',12,m.real?'#b47a40':'#4d8fb7')}${text(380,25,m.kindLabel,16,'#554a9b')}${text(380,292,m.atInfinity?'Objeto en el foco: rayos reflejados paralelos':`do = ${v.distance} cm · f = ${v.focal} cm · di = ${m.di.toFixed(1)} cm · m = ${m.m.toFixed(2)}`,12)}`;break;}
  case 'freefall':{const displacement=v.initial*v.time+.5*v.gravity*v.time*v.time;const y=Math.max(42,Math.min(220,55+displacement*4));body=`${line(380,25,380,250,'#d4d6e1',2,'5 7')}${line(260,250,500,250,'#9297aa',3)}<circle class="sim-fall-ball" cx="380" cy="${y}" r="19" fill="#e5a34d" stroke="#fff" stroke-width="3"/><path d="M380 ${y+27} V${Math.min(245,y+80)} M369 ${Math.min(235,y+68)} L380 ${Math.min(248,y+82)} L391 ${Math.min(235,y+68)}" fill="none" stroke="#7c70d0" stroke-width="3"/>${text(380,25,'Caída desde el reposo',15,'#554a9b')}${text(380,285,`t = ${v.time} s · v₀ = ${v.initial} m/s · g = ${v.gravity} m/s²`,13)}`;break;}
  case 'projectile':{const a=v.angle*Math.PI/180,vx=v.speed*Math.cos(a),vy=v.speed*Math.sin(a),tFlight=(vy+Math.sqrt(vy*vy+2*v.gravity*v.height))/v.gravity,R=vx*tFlight,H=v.height+vy*vy/(2*v.gravity),scale=Math.min(5.2,560/Math.max(1,R)),ground=245;let path=[];for(let i=0;i<=70;i++){const t=tFlight*i/70,x=vx*t,y=v.height+vy*t-.5*v.gravity*t*t;path.push(`${90+x*scale},${ground-y*scale}`)}body=`${line(70,ground,700,ground,'#9297aa',3)}${line(90,ground,90,Math.max(35,ground-v.height*scale),'#c8c9d5',1,'4 5')}<path d="M ${path.join(' L ')}" fill="none" stroke="#8175d7" stroke-width="4" stroke-linecap="round"/>${line(90,ground-v.height*scale,90+Math.cos(a)*Math.min(110,v.speed*4),ground-v.height*scale-Math.sin(a)*Math.min(110,v.speed*4),'#e0a16d',4)}<g id="dragProjectile" style="cursor:grab">${ball(90+Math.cos(a)*Math.min(110,v.speed*4),ground-v.height*scale-Math.sin(a)*Math.min(110,v.speed*4),10,'#e5a34d','↗')}</g>${ball(90,ground-v.height*scale,7,'#e5a34d','')}${text(380,28,`Altura máxima: ${H.toFixed(1)} m`,15,'#554a9b')}${text(380,282,`v₀ = ${v.speed} m/s · θ = ${v.angle}° · alcance = ${R.toFixed(1)} m · h₀ = ${v.height} m`,12)}`;break;}
  case 'mru':{const x=130+Math.min(470,v.speed*v.time*1.2);body=`${line(80,210,690,210,'#aeb2c2',4)}${[120,240,360,480,600].map(x=>line(x,202,x,218,'#aeb2c2',2)).join('')}<rect class="sim-cart-body" x="${Math.min(650,x)}" y="155" width="54" height="35" rx="8" fill="#8175d7"/><circle cx="${Math.min(660,x+12)}" cy="194" r="7" fill="#4f5367"/><circle cx="${Math.min(692,x+42)}" cy="194" r="7" fill="#4f5367"/>${line(130,135,Math.min(620,x+25),135,'#e0a16d',3)}${text(380,80,'Velocidad constante',16,'#554a9b')}${text(380,270,`v = ${v.speed} m/s · t = ${v.time} s · Δx = ${(v.speed*v.time).toFixed(1)} m`,13)}`;break;}
@@ -1591,48 +1789,65 @@ function convert(){const type=$("#conversionType").value,from=$("#fromUnit").val
 $("#conversionType").onchange=populateUnits;$("#fromUnit").onchange=convert;$("#toUnit").onchange=convert;$("#convertValue").oninput=convert;$("#swapUnits").onclick=()=>{const a=$("#fromUnit").value,b=$("#toUnit").value;$("#fromUnit").value=b;$("#toUnit").value=a;convert();};populateUnits();
 
 // Quiz: 32 questions covering the 16 syllabus topics
-const questions=[
-{topic:'LEY DE COULOMB',q:'¿Qué describe la ley de Coulomb?',a:['La fuerza entre cargas eléctricas', 'La energía térmica', 'La velocidad de la luz'],c:0,e:'Describe la fuerza eléctrica entre dos cargas; depende del producto de sus magnitudes y es inversamente proporcional al cuadrado de la distancia.'},
-{topic:'LEY DE COULOMB',q:'Si la distancia entre dos cargas se duplica, la fuerza eléctrica queda…',a:['Al doble', 'A la mitad', 'A la cuarta parte'],c:2,e:'Como F es proporcional a 1/r², duplicar r reduce la fuerza a 1/4.'},
-{topic:'CAMPO ELÉCTRICO',q:'¿Qué representa el campo eléctrico?',a:['La fuerza por unidad de carga de prueba', 'La masa por volumen', 'La energía por tiempo'],c:0,e:'El campo eléctrico indica qué fuerza experimentaría cada coulomb de carga positiva de prueba.'},
-{topic:'CAMPO ELÉCTRICO',q:'La unidad SI del campo eléctrico es…',a:['Tesla', 'N/C', 'Joule'],c:1,e:'El campo eléctrico se mide en newtons por coulomb (N/C), equivalente a V/m.'},
-{topic:'LEY DE GAUSS',q:'La ley de Gauss relaciona el flujo eléctrico con…',a:['La carga encerrada', 'La masa encerrada', 'La temperatura'],c:0,e:'El flujo eléctrico neto de una superficie cerrada depende de la carga neta encerrada.'},
-{topic:'LEY DE GAUSS',q:'¿Qué superficie suele simplificar el cálculo para una carga puntual?',a:['Cilindro', 'Esfera centrada en la carga', 'Plano inclinado'],c:1,e:'La simetría esférica permite que el campo tenga igual magnitud en toda la superficie.'},
-{topic:'POTENCIAL ELÉCTRICO',q:'El potencial eléctrico es una magnitud…',a:['Vectorial', 'Escalar', 'Sin unidad'],c:1,e:'El potencial es energía potencial eléctrica por unidad de carga y es escalar.'},
-{topic:'POTENCIAL ELÉCTRICO',q:'La unidad del potencial eléctrico es…',a:['Voltio', 'Tesla', 'Newton'],c:0,e:'Un voltio equivale a un joule por coulomb.'},
-{topic:'LEY DE OHM',q:'¿Qué relación establece la ley de Ohm?',a:['V = I·R', 'F = m·a', 'Q = m·c·ΔT'],c:0,e:'El voltaje es el producto de la corriente por la resistencia.'},
-{topic:'LEY DE OHM',q:'Con 12 V en una resistencia de 6 Ω, la corriente es…',a:['0,5 A', '2 A', '72 A'],c:1,e:'I = V/R = 12/6 = 2 A.'},
-{topic:'CAMPO MAGNÉTICO',q:'¿En qué unidad se mide B?',a:['Tesla', 'Voltio', 'Ohmio'],c:0,e:'La unidad SI del campo magnético es el tesla (T).'},
-{topic:'CAMPO MAGNÉTICO',q:'Una carga en reposo dentro de un campo magnético uniforme experimenta fuerza magnética…',a:['Máxima', 'Nula', 'Infinita'],c:1,e:'La fuerza magnética sobre una carga depende de su velocidad; en reposo es cero.'},
-{topic:'LEY DE AMPÈRE',q:'La ley de Ampère relaciona la circulación del campo magnético con…',a:['La corriente encerrada', 'La carga térmica', 'La distancia focal'],c:0,e:'La circulación de B alrededor de un camino cerrado depende de la corriente neta que atraviesa la superficie.'},
-{topic:'LEY DE AMPÈRE',q:'Al duplicar la distancia a un hilo recto largo, B…',a:['Se duplica', 'Se reduce a la mitad', 'No cambia'],c:1,e:'Para un hilo recto largo B es inversamente proporcional a la distancia radial.'},
-{topic:'LEY DE FARADAY',q:'¿Qué produce una FEM inducida?',a:['Un cambio del flujo magnético', 'Una masa constante', 'Un espejo plano'],c:0,e:'La variación temporal del flujo magnético induce una fuerza electromotriz.'},
-{topic:'LEY DE FARADAY',q:'¿Qué expresa el signo negativo de Faraday-Lenz?',a:['La oposición al cambio de flujo', 'Que la FEM siempre es cero', 'Que no hay corriente'],c:0,e:'La corriente inducida genera un campo que se opone a la variación que la produce.'},
-{topic:'CIRCUITO EN SERIE',q:'En un circuito en serie, la corriente…',a:['Es igual en todos los elementos', 'Se divide entre resistencias', 'Es cero siempre'],c:0,e:'Existe un único camino para la corriente, por eso la intensidad es la misma en todos los componentes.'},
-{topic:'CIRCUITO EN SERIE',q:'Tres resistencias de 2, 3 y 5 Ω en serie equivalen a…',a:['1 Ω', '10 Ω', '30 Ω'],c:1,e:'En serie se suman: Req = 2 + 3 + 5 = 10 Ω.'},
-{topic:'ONDAS ELECTROMAGNÉTICAS',q:'Las ondas electromagnéticas pueden propagarse…',a:['En el vacío', 'Solo en agua', 'Solo en sólidos'],c:0,e:'No necesitan un medio material; pueden viajar por el vacío.'},
-{topic:'ONDAS ELECTROMAGNÉTICAS',q:'En el vacío, la relación entre c, λ y f es…',a:['c = λf', 'c = λ/f', 'c = f/λ'],c:0,e:'La rapidez de propagación es el producto de longitud de onda por frecuencia.'},
-{topic:'REFLEXIÓN Y ESPEJOS',q:'El ángulo de reflexión se mide respecto a…',a:['La superficie', 'La normal', 'El rayo incidente'],c:1,e:'Los ángulos de incidencia y reflexión se miden desde la línea normal a la superficie.'},
-{topic:'REFLEXIÓN Y ESPEJOS',q:'Un espejo plano forma una imagen…',a:['Virtual y derecha', 'Real e invertida', 'Siempre aumentada'],c:0,e:'La imagen de un espejo plano es virtual, derecha y del mismo tamaño.'},
-{topic:'CAÍDA LIBRE',q:'En caída libre ideal, la aceleración es…',a:['Constante hacia abajo', 'Cero', 'Hacia arriba'],c:0,e:'Sin resistencia del aire, todos los cuerpos tienen aceleración gravitatoria hacia abajo.'},
-{topic:'CAÍDA LIBRE',q:'Un objeto parte del reposo y cae durante 2 s. Con g = 9,8 m/s², su rapidez final es…',a:['4,9 m/s', '19,6 m/s', '9,8 m/s'],c:1,e:'v = gt = 9,8 × 2 = 19,6 m/s.'},
-{topic:'TIRO PARABÓLICO',q:'¿Qué trayectoria describe un proyectil ideal?',a:['Parabólica', 'Circular', 'Rectilínea vertical'],c:0,e:'La combinación de MRU horizontal y MRUV vertical produce una parábola.'},
-{topic:'TIRO PARABÓLICO',q:'En el punto más alto del tiro parabólico, la componente vertical de la velocidad es…',a:['Cero', 'Máxima', 'Igual a g'],c:0,e:'En la altura máxima la velocidad vertical se anula momentáneamente; la horizontal permanece constante.'},
-{topic:'MRU Y MRUV',q:'En MRU, la velocidad es…',a:['Constante', 'Siempre creciente', 'Siempre nula'],c:0,e:'En movimiento rectilíneo uniforme la velocidad no cambia y la aceleración es cero.'},
-{topic:'MRU Y MRUV',q:'En MRUV, la aceleración es…',a:['Constante', 'Variable al azar', 'Cero necesariamente'],c:0,e:'El MRUV se caracteriza por aceleración constante y velocidad que cambia uniformemente.'},
-{topic:'TRABAJO Y ENERGÍA',q:'El trabajo de una fuerza constante paralela al desplazamiento es…',a:['W = F·d', 'W = m·v', 'W = F/d'],c:0,e:'Cuando fuerza y desplazamiento tienen la misma dirección, el trabajo es el producto F por d.'},
-{topic:'TRABAJO Y ENERGÍA',q:'La energía cinética depende de…',a:['La masa y el cuadrado de la rapidez', 'Solo la altura', 'Solo el tiempo'],c:0,e:'K = ½mv²; duplicar la rapidez cuadruplica la energía cinética.'},
-{topic:'DILATACIÓN TÉRMICA',q:'Al aumentar la temperatura de una barra, normalmente su longitud…',a:['Aumenta', 'Disminuye siempre', 'No puede cambiar'],c:0,e:'La dilatación lineal describe el aumento de longitud por cambio de temperatura.'},
-{topic:'DILATACIÓN TÉRMICA Y CALORIMETRÍA',q:'¿Qué calcula Q = mcΔT?',a:['Calor sensible', 'Fuerza eléctrica', 'Campo magnético'],c:0,e:'Calcula el calor intercambiado cuando cambia la temperatura sin cambio de fase.'}
-];
-let quizIndex=0,quizAnswers=Array(questions.length).fill(null),quizSubmitted=false;
-function renderQuiz(){const q=questions[quizIndex],answered=quizAnswers[quizIndex]!==null;$("#quizMain").innerHTML=`<div class="quiz-topline"><span>Pregunta ${quizIndex+1} de ${questions.length}</span><span>${Math.round((quizIndex)/questions.length*100)}% completado</span></div><div class="progress-track"><div class="progress-fill" style="width:${quizIndex/questions.length*100}%"></div></div><div class="question-topic">${q.topic}</div><h2 class="question-text">${q.q}</h2><div class="answers">${q.a.map((a,i)=>`<button class="answer-option ${quizAnswers[quizIndex]===i?"chosen":""} ${quizSubmitted&&i===q.c?"correct":quizSubmitted&&quizAnswers[quizIndex]===i&&i!==q.c?"wrong":""}" data-answer="${i}" ${quizSubmitted?"disabled":""}><span class="option-letter">${String.fromCharCode(65+i)}</span>${a}</button>`).join("")}</div>${quizSubmitted?`<div class="quiz-feedback"><b>${quizAnswers[quizIndex]===q.c?"¡Correcto!":"Respuesta incorrecta."}</b> ${q.e}</div>`:""}<div class="quiz-actions"><button class="soft-btn" id="prevQuestion" ${quizIndex===0?"disabled":""}>← Anterior</button>${quizIndex===questions.length-1?`<button class="primary-btn" id="finishQuiz">${quizSubmitted?"Ver resultado":"Finalizar cuestionario"}</button>`:`<button class="primary-btn" id="nextQuestion">Siguiente →</button>`}</div>`;
-$$("[data-answer]").forEach(b=>b.onclick=()=>{if(quizSubmitted)return;quizAnswers[quizIndex]=Number(b.dataset.answer);renderQuiz();});
-$("#prevQuestion").onclick=()=>{quizIndex--;renderQuiz();};
-if($("#nextQuestion"))$("#nextQuestion").onclick=()=>{if(quizAnswers[quizIndex]===null){toast("Selecciona una respuesta.");return;}quizIndex++;renderQuiz();};
-$("#finishQuiz").onclick=()=>{if(!quizSubmitted){if(quizAnswers.includes(null)){toast("Responde todas las preguntas antes de finalizar.");return;}quizSubmitted=true;renderQuiz();return;}const score=quizAnswers.filter((a,i)=>a===questions[i].c).length;$("#quizMain").innerHTML=`<div class="quiz-result-screen"><div class="assistant-avatar">✦</div><div class="eyebrow">RESULTADO FINAL</div><h2 style="font:800 28px Manrope">${score} / ${questions.length}</h2><p style="color:#85899b;font-size:12px">Has respondido correctamente ${score} de ${questions.length} preguntas.</p><button class="primary-btn" id="reviewQuiz">Revisar respuestas</button> <button class="soft-btn" id="restartQuiz">Volver a intentar</button></div>`;$("#reviewQuiz").onclick=()=>{quizIndex=0;renderQuiz();};$("#restartQuiz").onclick=()=>{quizIndex=0;quizAnswers=Array(questions.length).fill(null);quizSubmitted=false;renderQuiz();};};
+let questions = [];
+let quizIndex = 0, quizAnswers = [], quizSubmitted = false, quizTopic = "";
+function renderQuizSetup(errorText = "") {
+  const safeError = errorText ? `<div class="quiz-feedback">${escapeHtml(errorText)}</div>` : "";
+  $("#quizMain").innerHTML = `<div class="quiz-generator">
+    <span class="question-topic">CUESTIONARIO PERSONALIZADO</span>
+    <h2 class="question-text">¿Qué tema quieres practicar?</h2>
+    <p class="quiz-generator-copy">Escribe un tema concreto o uno de los temas del curso. La IA elaborará preguntas originales y adaptadas al nivel elegido.</p>
+    <label class="quiz-field-label" for="quizTopic">Tema o contenido</label>
+    <input id="quizTopic" class="field-control" maxlength="180" placeholder="Ej. Ley de Faraday, espejos cóncavos, circuitos..." value="${escapeHtml(quizTopic)}">
+    <div class="quiz-generator-grid">
+      <label class="quiz-field-label">Dificultad<select id="quizDifficulty" class="field-control"><option value="Básica">Básica</option><option value="Intermedia" selected>Intermedia</option><option value="Avanzada">Avanzada</option></select></label>
+      <label class="quiz-field-label">Número de preguntas<select id="quizCount" class="field-control"><option>5</option><option selected>10</option><option>15</option></select></label>
+    </div>
+    <button class="primary-btn full-btn" id="generateQuiz">✦ Generar cuestionario</button>
+    <p class="quiz-generator-note">Las preguntas no están almacenadas previamente: se generan cuando pulsas el botón.</p>${safeError}
+  </div>`;
+  $("#generateQuiz").onclick = generateAiQuiz;
+  typesetAssistantMath($("#quizMain"));
 }
-renderQuiz();
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+async function generateAiQuiz() {
+  const topic = $("#quizTopic").value.trim();
+  const difficulty = $("#quizDifficulty").value;
+  const count = Number($("#quizCount").value);
+  if (!topic) { toast("Escribe el tema del cuestionario."); return; }
+  quizTopic = topic;
+  const button = $("#generateQuiz"); button.disabled = true; button.textContent = "Generando cuestionario…";
+  try {
+    if (!geminiApiKey && !configurarClaveGemini()) throw new Error("Debes configurar tu API key para consultar Gemini.");
+    const prompt = `Actúa como docente universitario de física. Crea exactamente ${count} preguntas originales sobre: ${topic}. Dificultad: ${difficulty}. Redacta en español. Combina preguntas conceptuales y problemas numéricos cuando el tema lo permita. Cada pregunta debe ser autónoma, precisa y tener exactamente cuatro alternativas plausibles. Debe existir una sola respuesta correcta. Devuelve exclusivamente un JSON válido con esta estructura: {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"Explicación breve, clara y con el procedimiento o fundamento"}]}. correctIndex debe ser un entero de 0 a 3. Comprueba los cálculos, unidades, signos y la clave antes de responder. Para toda expresión matemática, escribe LaTeX usando delimitadores \\( ... \\) para fórmulas dentro del texto y \\[ ... \\] para ecuaciones independientes. No escribas fórmulas como código sin delimitadores ni uses bloques Markdown. Mantén el texto normal como texto legible. No incluyas Markdown ni texto fuera del JSON.`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const response = await fetch(url, {method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":geminiApiKey},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json",temperature:0.7}})});
+    if (!response.ok) { const data=await response.json().catch(()=>({})); throw new Error(data.error?.message || `Gemini respondió con el error HTTP ${response.status}.`); }
+    const data = await response.json();
+    const raw = data.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("").trim();
+    if (!raw) throw new Error("Gemini no devolvió preguntas. Inténtalo nuevamente.");
+    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""));
+    if (!Array.isArray(parsed.questions) || parsed.questions.length !== count) throw new Error("El cuestionario generado no tiene la cantidad solicitada. Vuelve a intentarlo.");
+    const valid = parsed.questions.every(q=>typeof q.question==="string" && Array.isArray(q.options) && q.options.length===4 && q.options.every(o=>typeof o==="string"&&o.trim()) && Number.isInteger(q.correctIndex)&&q.correctIndex>=0&&q.correctIndex<4 && typeof q.explanation==="string");
+    if (!valid) throw new Error("Gemini generó un formato de preguntas no válido. Vuelve a intentarlo.");
+    questions = parsed.questions.map((q,i)=>({topic:topic.toUpperCase(),q:q.question,a:q.options,c:q.correctIndex,e:q.explanation}));
+    quizIndex=0; quizAnswers=Array(questions.length).fill(null); quizSubmitted=false;
+    renderQuiz();
+  } catch(error) { renderQuizSetup(error.message || "No se pudo generar el cuestionario."); }
+}
+function renderQuiz(){
+  const q=questions[quizIndex];
+  if(!q){renderQuizSetup();return;}
+  const score=quizAnswers.filter((a,i)=>a===questions[i].c).length;
+  $("#quizMain").innerHTML=`<div class="quiz-topline"><span>Pregunta ${quizIndex+1} de ${questions.length}</span><span>${Math.round((quizIndex+1)/questions.length*100)}% del cuestionario</span></div><div class="progress-track"><div class="progress-fill" style="width:${(quizIndex+1)/questions.length*100}%"></div></div><div class="question-topic">${escapeHtml(q.topic)}</div><h2 class="question-text">${escapeHtml(q.q)}</h2><div class="answers">${q.a.map((a,i)=>`<button class="answer-option ${quizAnswers[quizIndex]===i?"chosen":""} ${quizSubmitted&&i===q.c?"correct":quizSubmitted&&quizAnswers[quizIndex]===i&&i!==q.c?"wrong":""}" data-answer="${i}" ${quizSubmitted?"disabled":""}><span class="option-letter">${String.fromCharCode(65+i)}</span>${escapeHtml(a)}</button>`).join("")}</div>${quizSubmitted?`<div class="quiz-feedback"><b>${quizAnswers[quizIndex]===q.c?"¡Correcto!":"Respuesta incorrecta."}</b> ${escapeHtml(q.e)}</div>`:""}<div class="quiz-actions"><button class="soft-btn" id="prevQuestion" ${quizIndex===0?"disabled":""}>← Anterior</button>${quizIndex===questions.length-1?`<button class="primary-btn" id="finishQuiz">${quizSubmitted?"Ver resultado":"Finalizar cuestionario"}</button>`:`<button class="primary-btn" id="nextQuestion">Siguiente →</button>`}</div><div class="quiz-actions"><button class="soft-btn" id="newQuiz">＋ Crear otro cuestionario</button></div>`;
+  $$('[data-answer]').forEach(b=>b.onclick=()=>{if(quizSubmitted)return;quizAnswers[quizIndex]=Number(b.dataset.answer);renderQuiz();});
+  $("#prevQuestion").onclick=()=>{quizIndex--;renderQuiz();};
+  if($("#nextQuestion"))$("#nextQuestion").onclick=()=>{if(quizAnswers[quizIndex]===null){toast("Selecciona una respuesta.");return;}quizIndex++;renderQuiz();};
+  $("#newQuiz").onclick=()=>renderQuizSetup();
+  typesetAssistantMath($("#quizMain"));
+  if($("#finishQuiz"))$("#finishQuiz").onclick=()=>{if(!quizSubmitted){if(quizAnswers.includes(null)){toast("Responde todas las preguntas antes de finalizar.");return;}quizSubmitted=true;renderQuiz();return;}const total=questions.length;$("#quizMain").innerHTML=`<div class="quiz-result-screen"><div class="assistant-avatar">✦</div><div class="eyebrow">RESULTADO FINAL · ${escapeHtml(quizTopic)}</div><h2 style="font:800 28px Manrope">${score} / ${total}</h2><p style="color:#85899b;font-size:12px">Has respondido correctamente ${score} de ${total} preguntas.</p><button class="primary-btn" id="reviewQuiz">Revisar respuestas</button> <button class="soft-btn" id="restartQuiz">Repetir cuestionario</button> <button class="soft-btn" id="newQuizResult">Crear otro</button></div>`;$("#reviewQuiz").onclick=()=>{quizIndex=0;renderQuiz();};$("#restartQuiz").onclick=()=>{quizIndex=0;quizAnswers=Array(questions.length).fill(null);quizSubmitted=false;renderQuiz();};$("#newQuizResult").onclick=()=>renderQuizSetup();typesetAssistantMath($("#quizMain"));};
+}
+renderQuizSetup();
 
 
 // Aplicar idioma guardado al iniciar y a los componentes generados dinámicamente.
