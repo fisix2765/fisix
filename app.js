@@ -560,9 +560,8 @@ $("#openSidebar").onclick=()=>$("#sidebar").classList.add("open");$("#closeSideb
 $("#languageSelect").addEventListener("change", e => setFisixLanguage(e.target.value));
 
 // ===== Chat de Fisix conectado a Google Gemini =====
-// Pruebas personales: la clave se solicita al usuario y solo se conserva en memoria.
-// IMPORTANTE: las llamadas desde el navegador exponen la clave en las herramientas de red.
-// Para publicar esta app con una clave propia, se necesita un backend/proxy seguro.
+// DEMO: clave configurada directamente para evitar solicitarla al abrir Fisix.
+// IMPORTANTE: al estar en el frontend público, cualquier visitante puede verla y usarla.
 // Modelo de baja latencia para conversación educativa.
 // Si necesitas razonamiento más avanzado, prueba gemini-3.8-flash
 // y cambia GEMINI_THINKING_LEVEL a "low".
@@ -572,7 +571,7 @@ const GEMINI_HISTORY_MESSAGES = 30; // Hasta 15 intercambios previos por convers
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
 
-let geminiApiKey = "";
+let geminiApiKey = "AQ.Ab8RN6KJxRbbckwxb4YkemHaEeBYsEpyMSZNj1724GeQcz9CgA";
 let chatHistory = []; // Contexto reciente que se envía a Gemini.
 let activeChat = null;
 const FISIX_CHATS_KEY = "fisix_saved_chats_v1";
