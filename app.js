@@ -447,10 +447,81 @@ function applyFisixLanguage() {
   fisixLanguageObserver.observe(document.body, {subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:["placeholder","title","aria-label","data-prompt"]});
 }
 
-function setFisixLanguage(language) {
-  fisixLanguage = language === "en" ? "en" : "es";
+let fisixLanguageChangeInProgress = false;
+
+async function translateExistingChatMessages(targetLanguage) {
+  if (!activeChat?.messages?.length) return false;
+  const assistantMessages = activeChat.messages.filter(message =>
+    message.role === "assistant" && message.text &&
+    !String(message.text).startsWith("No se pudo obtener una respuesta.") &&
+    message.text !== "Consulta cancelada."
+  );
+  const needsTranslation = assistantMessages.filter(message => {
+    const sourceLanguage = message.sourceLanguage || "es";
+    return sourceLanguage !== targetLanguage && !message.translations?.[targetLanguage];
+  });
+  if (!needsTranslation.length) return false;
+  if (!geminiApiKey && !configurarClaveGemini()) {
+    toast(targetLanguage === "en"
+      ? "Set your Gemini API key to translate the current answers."
+      : "Configura tu API key de Gemini para traducir las respuestas actuales.");
+    return false;
+  }
+
+  const languageName = targetLanguage === "en" ? "English" : "Spanish";
+  toast(targetLanguage === "en" ? "Translating current answers…" : "Traduciendo las respuestas actuales…");
+  for (const message of needsTranslation) {
+    const prompt = `Translate the following educational physics assistant response into ${languageName}. This is a translation of an existing answer, not a new answer. Preserve its complete meaning, all details, paragraph structure, lists, Markdown, numbers, units, symbols, and every LaTeX expression exactly as written. Do not solve the problem again, add explanations, omit content, or change any mathematical notation. Return only the translated text.\n\nTEXT TO TRANSLATE:\n${message.text}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiApiKey },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1 }
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error?.message || `Gemini translation failed (HTTP ${response.status}).`);
+    const translated = data.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("").trim();
+    if (!translated) throw new Error("Gemini did not return the translated answer.");
+    if (!message.translations) message.translations = {};
+    message.translations[targetLanguage] = translated;
+  }
+  saveActiveChat();
+  return true;
+}
+
+async function setFisixLanguage(language) {
+  const nextLanguage = language === "en" ? "en" : "es";
+  if (nextLanguage === fisixLanguage || fisixLanguageChangeInProgress) return;
+  const previousLanguage = fisixLanguage;
+  fisixLanguage = nextLanguage;
   try { localStorage.setItem("fisix-language", fisixLanguage); } catch {}
   applyFisixLanguage();
+
+  if (activeChat?.messages?.some(message => message.role === "assistant" && message.text)) {
+    fisixLanguageChangeInProgress = true;
+    try {
+      await translateExistingChatMessages(nextLanguage);
+      // Rebuild the visible conversation using the cached translation while
+      // keeping the original answer as the source for future language switches.
+      if (activeChat?.id) await openSavedChat(activeChat.id);
+    } catch (error) {
+      console.error("No se pudieron traducir las respuestas existentes:", error);
+      fisixLanguage = previousLanguage;
+      try { localStorage.setItem("fisix-language", fisixLanguage); } catch {}
+      applyFisixLanguage();
+      const selector = document.getElementById("languageSelect");
+      if (selector) selector.value = fisixLanguage;
+      toast(fisixLanguage === "en"
+        ? "Could not translate the current answers. The previous language was restored."
+        : "No se pudieron traducir las respuestas actuales. Se restauró el idioma anterior.");
+      return;
+    } finally {
+      fisixLanguageChangeInProgress = false;
+    }
+  }
   toast(fisixLanguage === "en" ? "Language changed to English." : "Idioma cambiado a español.");
 }
 
@@ -674,7 +745,7 @@ async function openSavedChat(id) {
   for (const message of chat.messages) {
     let media = null;
     // Limpia etiquetas de adjuntos usadas por versiones anteriores del proyecto.
-    const displayText = String(message.text || "")
+    const displayText = String(message.translations?.[fisixLanguage] || message.text || "")
       .replace(/\n\[Imagen:[^\]]*\]/g, "")
       .replace(/\n\[Audio adjunto\]/g, "")
       .trim();
@@ -1141,14 +1212,18 @@ function normalizeGeminiHistory(messages) {
 
 // ===== Instrucciones generales del tutor Fisix =====
 function buildFisixSystemInstruction() {
-  const baseEs = `Eres Fisix, un tutor especializado en física universitaria. Responde en español claro y conserva el contexto de toda la conversación. Interpreta seguimientos breves como «¿por qué?», «no entendí», «ese paso» o «explícalo otra vez» usando el tema y los mensajes anteriores. Si hubo un error, corrígelo directamente y explica qué estaba mal. Ajusta la profundidad a la pregunta y a lo que el estudiante demuestre necesitar; no agregues contenido solo para alargar la respuesta.
+  const baseEs = `IDIOMA OBLIGATORIO: responde siempre en español. Esta selección tiene prioridad sobre el idioma de los mensajes anteriores, documentos adjuntos o ejemplos. Si el usuario cambia el selector a inglés, la siguiente respuesta debe estar completamente en inglés; si lo cambia a español, debe estar completamente en español. No mezcles idiomas salvo que el usuario lo solicite.
+
+Eres Fisix, un tutor especializado en física universitaria. Responde en español claro y conserva el contexto de toda la conversación. Interpreta seguimientos breves como «¿por qué?», «no entendí», «ese paso» o «explícalo otra vez» usando el tema y los mensajes anteriores. Si hubo un error, corrígelo directamente y explica qué estaba mal. Ajusta la profundidad a la pregunta y a lo que el estudiante demuestre necesitar; no agregues contenido solo para alargar la respuesta.
 
 FORMATO: escribe con párrafos breves y organización limpia. No uses encabezados Markdown #, tablas ni bloques de código salvo que se pidan. Escribe toda expresión matemática en LaTeX válido: \\( ... \\) en línea y \\[ ... \\] en bloque. Usa unidades SI cuando corresponda.
 
 FÍSICA: puedes ayudar con mecánica, electricidad, magnetismo, óptica, ondas, termodinámica y los temas del temario de Fisix. Si la consulta no guarda relación razonable con física, explica amablemente que Fisix está especializado en esa materia.
 
 IMÁGENES Y AUDIO: analiza las imágenes adjuntas y resuelve lo que se vea. Interpreta el contenido hablado de los audios y responde a la pregunta; transcribe solo si lo solicitan.`;
-  const baseEn = `You are Fisix, a university-level physics tutor. Answer in clear English and preserve the full conversation context. Interpret short follow-ups such as “why?”, “I did not understand”, “that step”, or “explain again” using earlier messages and the current topic. If an earlier answer was wrong, correct it directly and explain the mistake. Adjust depth to the question and what the student appears to need; never add content merely to make an answer longer.
+  const baseEn = `MANDATORY LANGUAGE: always answer in English. This selection takes priority over the language of earlier messages, attached documents, or examples. If the user switches the selector to Spanish, the next answer must be entirely in Spanish; if they switch it to English, it must be entirely in English. Do not mix languages unless requested.
+
+You are Fisix, a university-level physics tutor. Answer in clear English and preserve the full conversation context. Interpret short follow-ups such as “why?”, “I did not understand”, “that step”, or “explain again” using earlier messages and the current topic. If an earlier answer was wrong, correct it directly and explain the mistake. Adjust depth to the question and what the student appears to need; never add content merely to make an answer longer.
 
 FORMAT: use concise paragraphs and clean structure. Avoid Markdown # headings, tables, and code blocks unless requested. Write every mathematical expression in valid LaTeX: \\( ... \\) inline and \\[ ... \\] display. Use SI units where appropriate.
 
@@ -1453,7 +1528,10 @@ async function sendChat(text) {
     if (requestId !== chatRequestId) return; // Se limpió el chat en esta espera.
     answerBubble.classList.remove("thinking-message");
     setAssistantBubbleContent(answerBubble, respuesta);
-    chatForThisRequest.messages.push({ role: "assistant", text: respuesta, timestamp: Date.now() });
+    chatForThisRequest.messages.push({
+      role: "assistant", text: respuesta, sourceLanguage: fisixLanguage,
+      translations: { [fisixLanguage]: respuesta }, timestamp: Date.now()
+    });
     if (activeChat?.id === chatForThisRequest.id) saveActiveChat();
     appendGeminiHistory("user", [{ text: preguntaConFuentes }, ...mediaParts]);
     appendGeminiHistory("model", [{ text: respuesta }]);
@@ -1810,6 +1888,73 @@ function renderQuizSetup(errorText = "") {
   typesetAssistantMath($("#quizMain"));
 }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// Interpreta el JSON de Gemini y corrige barras invertidas sin escapar dentro de textos.
+// Gemini puede incluir comandos matemáticos como \\frac o \\theta, que no son escapes JSON.
+function parseGeminiJson(raw) {
+  const cleaned = String(raw ?? "")
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (originalError) {
+    let repaired = "";
+    let insideString = false;
+
+    for (let i = 0; i < cleaned.length; i++) {
+      const char = cleaned[i];
+
+      if (!insideString) {
+        if (char === '"') insideString = true;
+        repaired += char;
+        continue;
+      }
+
+      if (char === '"') {
+        // Las comillas solo cierran el texto si no están precedidas por una barra activa.
+        let slashCount = 0;
+        for (let j = i - 1; j >= 0 && cleaned[j] === "\\"; j--) slashCount++;
+        if (slashCount % 2 === 0) insideString = false;
+        repaired += char;
+        continue;
+      }
+
+      if (char !== "\\") {
+        repaired += char;
+        continue;
+      }
+
+      const next = cleaned[i + 1] || "";
+      const afterNext = cleaned[i + 2] || "";
+      const isUnicodeEscape = next === "u" && /^[0-9a-fA-F]{4}$/.test(cleaned.slice(i + 2, i + 6));
+      const isSimpleJsonEscape = '"\\/bfnrt'.includes(next);
+      // Si después de \n, \t, \f, etc. continúa una palabra, normalmente es LaTeX
+      // (por ejemplo \\theta, \\frac, \\text), no un escape JSON intencional.
+      const looksLikeLatexCommand = /[A-Za-z]/.test(next) && /[A-Za-z]/.test(afterNext);
+      const isValidEscape = isUnicodeEscape || (isSimpleJsonEscape && !looksLikeLatexCommand);
+
+      if (isUnicodeEscape) {
+        repaired += cleaned.slice(i, i + 6);
+        i += 5;
+      } else if (isValidEscape) {
+        repaired += cleaned.slice(i, i + 2);
+        i += 1;
+      } else {
+        repaired += "\\\\";
+      }
+    }
+
+    try {
+      return JSON.parse(repaired);
+    } catch (repairError) {
+      // Conserva el error original para que el diagnóstico no oculte la causa inicial.
+      throw originalError;
+    }
+  }
+}
+
 async function generateAiQuiz() {
   const topic = $("#quizTopic").value.trim();
   const difficulty = $("#quizDifficulty").value;
@@ -1819,14 +1964,51 @@ async function generateAiQuiz() {
   const button = $("#generateQuiz"); button.disabled = true; button.textContent = "Generando cuestionario…";
   try {
     if (!geminiApiKey && !configurarClaveGemini()) throw new Error("Debes configurar tu API key para consultar Gemini.");
-    const prompt = `Actúa como docente universitario de física. Crea exactamente ${count} preguntas originales sobre: ${topic}. Dificultad: ${difficulty}. Redacta en español. Combina preguntas conceptuales y problemas numéricos cuando el tema lo permita. Cada pregunta debe ser autónoma, precisa y tener exactamente cuatro alternativas plausibles. Debe existir una sola respuesta correcta. Devuelve exclusivamente un JSON válido con esta estructura: {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"Explicación breve, clara y con el procedimiento o fundamento"}]}. correctIndex debe ser un entero de 0 a 3. Comprueba los cálculos, unidades, signos y la clave antes de responder. Para toda expresión matemática, escribe LaTeX usando delimitadores \\( ... \\) para fórmulas dentro del texto y \\[ ... \\] para ecuaciones independientes. No escribas fórmulas como código sin delimitadores ni uses bloques Markdown. Mantén el texto normal como texto legible. No incluyas Markdown ni texto fuera del JSON.`;
+    const quizLanguage = fisixLanguage === "en" ? "English" : "Spanish";
+    const explanationLabel = fisixLanguage === "en" ? "A brief, clear explanation with the method or underlying principle" : "Explicación breve, clara y con el procedimiento o fundamento";
+    const prompt = `Act as a university physics instructor. Create exactly ${count} original questions about: ${topic}. Difficulty: ${difficulty}. REQUIRED OUTPUT LANGUAGE: ${quizLanguage}. Write the title, every question, all four answer options, and every explanation entirely in ${quizLanguage}, regardless of the language used in the topic. Combine conceptual questions and numerical problems when appropriate. Each question must be self-contained and precise, with exactly four plausible options and only one correct answer. Return only valid JSON with this structure: {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"${explanationLabel}"}]}. correctIndex must be an integer from 0 to 3. Check calculations, units, signs, and answer keys. For mathematical expressions, use readable Unicode notation (for example, Δ, θ, π, √, ², ×, ÷) and avoid LaTeX commands or backslashes entirely so the JSON remains valid. Do not include Markdown or text outside the JSON.`;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-    const response = await fetch(url, {method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":geminiApiKey},body:JSON.stringify({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json",temperature:0.7}})});
-    if (!response.ok) { const data=await response.json().catch(()=>({})); throw new Error(data.error?.message || `Gemini respondió con el error HTTP ${response.status}.`); }
-    const data = await response.json();
-    const raw = data.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("").trim();
-    if (!raw) throw new Error("Gemini no devolvió preguntas. Inténtalo nuevamente.");
-    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,""));
+    let parsed = null;
+    let lastParseError = null;
+
+    // Gemini puede cortar una respuesta JSON larga, especialmente con 10 o 15 preguntas.
+    // Si ocurre, se vuelve a solicitar una versión más compacta antes de mostrar un error.
+    for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+      const retryPrompt = attempt === 0 ? prompt : `${prompt}\n\nIMPORTANT RETRY: The previous output was incomplete. Return a COMPLETE, syntactically valid JSON object. Keep each explanation to one short sentence, keep all questions and four options, close every string/array/object, and do not stop before the final closing brace.`;
+      const response = await fetch(url, {
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-goog-api-key":geminiApiKey},
+        body:JSON.stringify({
+          contents:[{role:"user",parts:[{text:retryPrompt}]}],
+          generationConfig:{responseMimeType:"application/json",temperature:0.3,maxOutputTokens:12288}
+        })
+      });
+      if (!response.ok) {
+        const data=await response.json().catch(()=>({}));
+        throw new Error(data.error?.message || `Gemini respondió con el error HTTP ${response.status}.`);
+      }
+      const data = await response.json();
+      const candidate = data.candidates?.[0];
+      const raw = candidate?.content?.parts?.map(p=>p.text||"").join("").trim();
+      if (!raw) {
+        const reason = candidate?.finishReason;
+        throw new Error(reason === "MAX_TOKENS"
+          ? "Gemini cortó la respuesta por su límite de extensión. Intenta generar menos preguntas."
+          : "Gemini no devolvió preguntas. Inténtalo nuevamente.");
+      }
+      try {
+        parsed = parseGeminiJson(raw);
+      } catch (error) {
+        lastParseError = error;
+        if (attempt === 1) {
+          const reason = candidate?.finishReason;
+          throw new Error(reason === "MAX_TOKENS"
+            ? "Gemini está cortando el JSON porque el cuestionario es demasiado extenso. Prueba con 5 preguntas."
+            : "Gemini devolvió un JSON incompleto o mal formado incluso después de reintentar. Vuelve a generar el cuestionario.");
+        }
+      }
+    }
+    if (!parsed) throw lastParseError || new Error("No se pudo interpretar el cuestionario generado.");
     if (!Array.isArray(parsed.questions) || parsed.questions.length !== count) throw new Error("El cuestionario generado no tiene la cantidad solicitada. Vuelve a intentarlo.");
     const valid = parsed.questions.every(q=>typeof q.question==="string" && Array.isArray(q.options) && q.options.length===4 && q.options.every(o=>typeof o==="string"&&o.trim()) && Number.isInteger(q.correctIndex)&&q.correctIndex>=0&&q.correctIndex<4 && typeof q.explanation==="string");
     if (!valid) throw new Error("Gemini generó un formato de preguntas no válido. Vuelve a intentarlo.");
